@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "synthesis"
+version = "0.1.0"
+description = ""
+authors = ["Pedro Pinho <ptfpinho@hotmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+black = "^23.9.1"
+docker = "^6.1.3"
+schedule = "^1.2.1"
+redis = "^5.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+haven = "synthesis:haven"
+
+[tool.black]
+line-length = 80
+target-version = ['py39']
