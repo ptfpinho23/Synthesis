@@ -15,14 +15,9 @@ class Ingress:
 
     def start_ingress(self, network_name):
         try:
-            subprocess.run(["docker", "run", "--name",
-                           f"kong-database-{network_name}", "-d", "-p", "9042:9042", "cassandra:3"])
-
-            time.sleep(15)
 
             subprocess.run(["docker", "run", "--name",
-               f"ingress-{network_name}", "--network", network_name, "-d", "--link", f"kong-database-{network_name}:kong-database", "-e", "KONG_DATABASE=cassandra", "kong:latest"])
-            time.sleep(5)
+                            f"ingress-{network_name}", "--network", network_name, "-d", "-e", "KONG_DATABASE=off", "-e", f"KONG_PG_HOST=kong-database-{network_name}", "-e", "KONG_PROXY_ACCESS_LOG=/dev/stdout", "-e", "KONG_ADMIN_ACCESS_LOG=/dev/stdout", "-e", "KONG_PROXY_ERROR_LOG=/dev/stdout", "-e", "KONG_ADMIN_ERROR_LOG=/dev/stderr", "-e", "KONG_ADMIN_LISTEN=0.0.0.0:8001,0.0.0.0:8444 ssl", "kong:latest"])
 
             inspect_output = subprocess.check_output(
                 ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", f"ingress-{network_name}"])
@@ -32,7 +27,7 @@ class Ingress:
             print(f"Kong Admin URL for '{network_name}': {self.admin_url}")
 
         except Exception as e:
-            print(f"Failed to start Kong APG '{self.name}': {str(e)}")
+            print(f"Failed to start Kong APG '{network_name}': {str(e)}")
 
     def register_ingress_service(self, name, url):
         try:
