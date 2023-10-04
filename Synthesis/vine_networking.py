@@ -47,7 +47,13 @@ class VineNetworking:
         self.enable_ip_forwarding()
         self.configure_nat(external_interface)
         self.configure_routing(namespace_name, "10.0.0.1")
+        namespace_gateway_ip = f"{ip_address[:-1]}1"
+        self.configure_routing(namespace_name, namespace_gateway_ip)
 
     def cleanup(self):
         for namespace in self.namespaces:
             self.delete_namespace(namespace)
+
+    def configure_routing(self, namespace, gateway_ip):
+        # Add a default route within the namespace
+        subprocess.run(["ip", "netns", "exec", namespace, "ip", "route", "add", "default", "via", gateway_ip])
