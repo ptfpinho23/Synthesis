@@ -69,10 +69,16 @@ class Haven:
                 cpu_utilization = container_stats["cpu_stats"]["cpu_usage"]["total_usage"]
                 memory_usage = container_stats["memory_stats"]["usage"]
                 new_cpu_limit = int(self.capacity.cpu_cores * (cpu_utilization / 1000000000))
-                container.update(cpu_period=100000, cpu_quota=new_cpu_limit)
-                new_memory_limit = max(int(self.capacity.memory_mb * (memory_usage / (1024 * 1024))), 6)
-                container.update(mem_limit=new_memory_limit)
-                print(f"Adjusted resources for '{container_name}': CPU {new_cpu_limit}, Memory {new_memory_limit}MB")
+                new_memory_limit = max(int(self.capacity.memory_mb * (memory_usage / (1024 * 1024))), 6 * 1024 * 1024) 
+
+                # Update container resources
+                container.update(
+                    cpu_period=100000,
+                    cpu_quota=new_cpu_limit,
+                    mem_limit=new_memory_limit,
+                    memswap_limit=new_memory_limit
+                )
+                print(f"Adjusted resources for '{container_name}': CPU {new_cpu_limit}, Memory {new_memory_limit / (1024 * 1024)}MB")
 
         except Exception as e:
             print(f"Failed to allocate resources: {str(e)}")
