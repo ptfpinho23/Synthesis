@@ -1,5 +1,6 @@
 from haven import Haven, Capacity
 from vine_networking import VineNetworking
+from ingress import Ingress
 import time
 
 
@@ -8,10 +9,13 @@ class Vine:
     def __init__(self):
         self.havens: dict[str, Haven] = {}
         self.networking = VineNetworking()
+        self.ingress = Ingress()
 
     def create_haven(self, name, capacity):
         haven = Haven(name, capacity)
         self.networking.create_network(name)
+        # create APG for haven ingress
+        self.ingress.start_ingress(name)
         self.havens[name] = haven
 
     def delete_haven(self, name):
