@@ -14,9 +14,12 @@ class Vine:
     def create_haven(self, name, capacity):
         haven = Haven(name, capacity)
         self.networking.create_network(name)
-        # create APG for haven ingress
+        # Create APG for haven ingress
         self.ingress.start_ingress(name)
         self.havens[name] = haven
+        # Register Kong service and route for the haven
+        self.ingress.register_ingress_service(f"{name}-service", f"http://{name}:80")
+        self.ingress.register_ingress_route(f"{name}-service", "testing")
 
     def delete_haven(self, name):
         if name in self.havens:
