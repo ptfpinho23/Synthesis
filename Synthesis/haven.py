@@ -49,7 +49,7 @@ class Haven:
                     container.remove(force=True)
                     self.redis_connection.delete(container_name)
 
-                    self.run_container(container_name, container.attrs["Config"]["Image"])
+                    self.run_container(container_name.decode(), container.attrs["Config"]["Image"])
 
             except docker.errors.NotFound:
                 print(f"Container '{container_name}' not found. It might have been removed.")
