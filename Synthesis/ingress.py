@@ -8,34 +8,32 @@ import time
 
 class Ingress:
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self):
         self.admin_url = None
 
     # FIXME
+
     def start_ingress(self, network_name):
         try:
-            subprocess.run(["docker", "run", "--name",
-                           f"ingress-{network_name}", "--network", network_name, "-d", "kong:latest"])
 
-            # FIXME
-            time.sleep(5)
+            subprocess.run(["docker", "run", "--name",
+                            f"ingress-{network_name}", "--network", network_name, "-d", "-e", "KONG_DATABASE=off", "-e", f"KONG_PG_HOST=kong-database-{network_name}", "-e", "KONG_PROXY_ACCESS_LOG=/dev/stdout", "-e", "KONG_ADMIN_ACCESS_LOG=/dev/stdout", "-e", "KONG_PROXY_ERROR_LOG=/dev/stdout", "-e", "KONG_ADMIN_ERROR_LOG=/dev/stderr", "-e", "KONG_ADMIN_LISTEN=0.0.0.0:8001,0.0.0.0:8444 ssl", "kong:latest"])
+
             inspect_output = subprocess.check_output(
                 ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", f"ingress-{network_name}"])
             container_ip = inspect_output.decode().strip()
 
             self.admin_url = f"http://{container_ip}:8001"
-            print(f"Kong Admin URL for '{self.name}': {self.admin_url}")
+            print(f"Kong Admin URL for '{network_name}': {self.admin_url}")
 
         except Exception as e:
-            print(f"Failed to start Kong APG '{self.name}': {str(e)}")
+            print(f"Failed to start Kong APG '{network_name}': {str(e)}")
 
     def register_ingress_service(self, name, url):
         try:
-            # Define the Kong service registration endpoint
+
             registration_endpoint = f"{self.admin_url}/services"
 
-            # Kong Service create payload
             payload = {
                 "name": name,
                 "url": url,
