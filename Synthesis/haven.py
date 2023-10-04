@@ -19,13 +19,19 @@ class Haven:
 
     def run_container(self, container_name, image):
         try:
-            command = f"ip netns exec {self.name} docker run --name {container_name} -d {image}"
+            random_string = str(int(time.time()))
+
+            # Modify the container name to append the random string
+            container_name = f"{container_name}_{random_string}"
+
+            command = f"docker run --name {container_name} --hostname {container_name} -d {image}"
             subprocess.run(command, shell=True, check=True)
 
             # Store container information in Redis
             container = self.client.containers.get(container_name)
             self.redis_connection.set(container_name, container.id)
             print(f"Started container '{container_name}'")
+            return container
 
         except Exception as e:
             print(f"Failed to start container '{container_name}': {str(e)}")
