@@ -19,7 +19,7 @@ class Vine:
         self.havens[name] = haven
         # Register Kong service and route for the haven
         self.ingress.register_ingress_service(f"{name}-service", f"http://{name}:80")
-        self.ingress.register_ingress_route(f"{name}-service", "testing")
+        self.ingress.register_ingress_route(f"{name}-service", "/testing")
 
     def delete_haven(self, name):
         if name in self.havens:
