@@ -35,9 +35,11 @@ class Ingress:
             registration_endpoint = f"{self.admin_url}/services"
 
             payload = {
-                "name": name,
-                "url": url,
-            }
+            "name": name,
+            "protocol": "http",
+            "host": "nginx_1",
+            "port": 80
+        }
 
             response = requests.post(registration_endpoint, json=payload)
 
@@ -52,12 +54,14 @@ class Ingress:
 
     def register_ingress_route(self, name, service_name):
         try:
-            route_creation_endpoint = f"{self.admin_url}/services/{service_name}/routes"
+            route_creation_endpoint = f"http://localhost:8001/services/{service_name}/routes"
 
             # Kong route create payload
             payload = {
-                "name": name,
-                "paths": [f"/{service_name}"],
+                "name": service_name,
+                "protocols": ["http"],
+                "methods": ["GET"],
+                "paths": ["/foo", "/bar"],
             }
 
             response = requests.post(route_creation_endpoint, json=payload)
