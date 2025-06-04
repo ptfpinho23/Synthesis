@@ -48,13 +48,21 @@ func NewContainerdRuntime(config *runtime.RuntimeConfig) (*ContainerdRuntime, er
 func (c *ContainerdRuntime) CreateContainer(ctx context.Context, spec *api.Container, podName string) (*runtime.ContainerInfo, error) {
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
 
+	// Normalize image name
+	imageName := spec.Image
+	if !strings.Contains(imageName, "/") {
+		imageName = "docker.io/library/" + imageName
+	} else if strings.Count(imageName, "/") == 1 {
+		imageName = "docker.io/" + imageName
+	}
+
 	// Pull image if not present
-	image, err := c.client.GetImage(ctx, spec.Image)
+	image, err := c.client.GetImage(ctx, imageName)
 	if err != nil {
 		if err := c.PullImage(ctx, spec.Image); err != nil {
 			return nil, fmt.Errorf("failed to pull image %s: %w", spec.Image, err)
 		}
-		image, err = c.client.GetImage(ctx, spec.Image)
+		image, err = c.client.GetImage(ctx, imageName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get image after pull: %w", err)
 		}
@@ -301,6 +309,13 @@ func (c *ContainerdRuntime) ExecContainer(ctx context.Context, containerID strin
 // PullImage pulls an image
 func (c *ContainerdRuntime) PullImage(ctx context.Context, image string) error {
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
+
+	// Add docker.io prefix for unqualified images
+	if !strings.Contains(image, "/") {
+		image = "docker.io/library/" + image
+	} else if strings.Count(image, "/") == 1 {
+		image = "docker.io/" + image
+	}
 
 	_, err := c.client.Pull(ctx, image, containerd.WithPullUnpack)
 	if err != nil {
