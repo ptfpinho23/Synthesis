@@ -1,6 +1,6 @@
 # Synthesis - Like Kubernetes, but Tinier
 
-Synthesis is a lightweight container orchestrator that's **100% compatible with Kubernetes manifests** but significantly smaller and simpler. Deploy your existing Kubernetes Pods, Deployments, StatefulSets, and Services without any changes.
+Synthesis is a lightweight container orchestrator that's meant to be k8s compatible, but significantly smaller and simpler.
 
 ## Why Synthesis?
 
