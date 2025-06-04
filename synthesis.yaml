@@ -1,0 +1,18 @@
+# Synthesis Container Orchestrator Configuration
+# Like Kubernetes, but tinier - fully compatible with K8s manifests
+
+server:
+  listen_addr: ":8080"
+  debug: true
+  data_dir: "./data"
+
+runtime:
+  type: "containerd"  # Only containerd is supported (no Docker)
+  socket_path: "/run/containerd/containerd.sock"  # containerd socket path
+  api_version: ""  # Auto-negotiate API version
+  timeout: 30
+  default_network: "synthesis"
+  default_labels:
+    managed-by: "synthesis"
+    version: "v0.1.0"
+    k8s-compatible: "true" 
