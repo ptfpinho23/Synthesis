@@ -106,6 +106,21 @@ func (s *Server) SetupRoutes(router *mux.Router) {
 	coreAPI.HandleFunc("/services/{name}", s.updateServiceHandler).Methods("PUT")
 	coreAPI.HandleFunc("/services/{name}", s.deleteServiceHandler).Methods("DELETE")
 	
+	// Generic workload endpoints
+	coreAPI.HandleFunc("/workloads", s.listAllWorkloadsHandler).Methods("GET")
+	coreAPI.HandleFunc("/workloads/{name}", s.getGenericWorkloadHandler).Methods("GET")
+	coreAPI.HandleFunc("/workloads/{name}", s.updateGenericWorkloadHandler).Methods("PUT")
+	coreAPI.HandleFunc("/workloads/{name}", s.deleteGenericWorkloadHandler).Methods("DELETE")
+	coreAPI.HandleFunc("/workloads", s.createGenericWorkloadHandler).Methods("POST")
+	
+	// Container management endpoints
+	coreAPI.HandleFunc("/containers", s.listContainersHandler).Methods("GET")
+	coreAPI.HandleFunc("/containers/{id}/logs", s.getContainerLogsHandler).Methods("GET")
+	coreAPI.HandleFunc("/containers/{id}/exec", s.execContainerHandler).Methods("POST")
+	
+	// System endpoints
+	coreAPI.HandleFunc("/system/info", s.systemInfoHandler).Methods("GET")
+	
 	// Node endpoints
 	coreAPI.HandleFunc("/nodes", s.listNodesHandler).Methods("GET")
 	coreAPI.HandleFunc("/nodes/{name}", s.getNodeHandler).Methods("GET")
@@ -128,18 +143,6 @@ func (s *Server) SetupRoutes(router *mux.Router) {
 	appsAPI.HandleFunc("/statefulsets/{name}", s.updateStatefulSetHandler).Methods("PUT")
 	appsAPI.HandleFunc("/statefulsets/{name}", s.deleteStatefulSetHandler).Methods("DELETE")
 	appsAPI.HandleFunc("/statefulsets/{name}/scale", s.scaleStatefulSetHandler).Methods("PUT")
-	
-	// Generic workload endpoint for backward compatibility
-	synthAPI := router.PathPrefix("/api/synthesis/v1").Subrouter()
-	synthAPI.HandleFunc("/workloads", s.listAllWorkloadsHandler).Methods("GET")
-	
-	// Container management endpoints
-	synthAPI.HandleFunc("/containers", s.listContainersHandler).Methods("GET")
-	synthAPI.HandleFunc("/containers/{id}/logs", s.getContainerLogsHandler).Methods("GET")
-	synthAPI.HandleFunc("/containers/{id}/exec", s.execContainerHandler).Methods("POST")
-	
-	// System endpoints
-	synthAPI.HandleFunc("/system/info", s.systemInfoHandler).Methods("GET")
 	
 	// Generic manifest endpoint (auto-detect resource type)
 	router.HandleFunc("/apply", s.applyManifestHandler).Methods("POST")
@@ -663,6 +666,226 @@ func (s *Server) listAllWorkloadsHandler(w http.ResponseWriter, r *http.Request)
 		"items": workloads,
 		"count": len(workloads),
 	})
+}
+
+// Handle getting a specific workload by name
+func (s *Server) getGenericWorkloadHandler(w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["name"]
+	
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	
+	// Check deployments first
+	if deployment, exists := s.deployments[name]; exists {
+		s.writeJSON(w, deployment)
+		return
+	}
+	
+	// Check statefulsets
+	if statefulset, exists := s.statefulsets[name]; exists {
+		s.writeJSON(w, statefulset)
+		return
+	}
+	
+	// Check pods
+	if pod, exists := s.pods[name]; exists {
+		s.writeJSON(w, pod)
+		return
+	}
+	
+	// Workload not found
+	s.writeError(w, http.StatusNotFound, "Workload not found", nil)
+}
+
+// Handle updating a specific workload
+func (s *Server) updateGenericWorkloadHandler(w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["name"]
+	
+	// Decode the manifest to determine its kind
+	var manifest map[string]interface{}
+	if err := s.decodeManifest(r, &manifest); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid manifest", err)
+		return
+	}
+	
+	kind, ok := manifest["kind"].(string)
+	if !ok {
+		s.writeError(w, http.StatusBadRequest, "Missing or invalid 'kind' field", nil)
+		return
+	}
+	
+	// Re-encode the manifest for type-specific handlers
+	data, _ := json.Marshal(manifest)
+	
+	// Route to the appropriate handler based on kind
+	switch kind {
+	case "Deployment":
+		var deployment api.Deployment
+		if err := json.Unmarshal(data, &deployment); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid Deployment manifest", err)
+			return
+		}
+		deployment.Name = name
+		s.setDefaultsForDeployment(&deployment)
+		s.mutex.Lock()
+		s.deployments[name] = &deployment
+		s.mutex.Unlock()
+		if err := s.storage.StoreDeployment(&deployment); err != nil {
+			log.Printf("Failed to persist deployment: %v", err)
+		}
+		s.writeJSON(w, &deployment)
+		
+	case "StatefulSet":
+		var statefulset api.StatefulSet
+		if err := json.Unmarshal(data, &statefulset); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid StatefulSet manifest", err)
+			return
+		}
+		statefulset.Name = name
+		s.setDefaultsForStatefulSet(&statefulset)
+		s.mutex.Lock()
+		s.statefulsets[name] = &statefulset
+		s.mutex.Unlock()
+		if err := s.storage.StoreStatefulSet(&statefulset); err != nil {
+			log.Printf("Failed to persist statefulset: %v", err)
+		}
+		s.writeJSON(w, &statefulset)
+		
+	case "Pod":
+		var pod api.Pod
+		if err := json.Unmarshal(data, &pod); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid Pod manifest", err)
+			return
+		}
+		pod.Name = name
+		s.setDefaultsForPod(&pod)
+		s.mutex.Lock()
+		s.pods[name] = &pod
+		s.mutex.Unlock()
+		if err := s.storage.StorePod(&pod); err != nil {
+			log.Printf("Failed to persist pod: %v", err)
+		}
+		s.writeJSON(w, &pod)
+		
+	default:
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Unsupported workload kind: %s", kind), nil)
+	}
+}
+
+// Handle deleting a specific workload
+func (s *Server) deleteGenericWorkloadHandler(w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["name"]
+	
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	
+	var deleted bool
+	
+	// Try to delete from deployments
+	if _, exists := s.deployments[name]; exists {
+		delete(s.deployments, name)
+		if err := s.storage.DeleteDeployment(name); err != nil {
+			log.Printf("Failed to delete deployment from storage: %v", err)
+		}
+		deleted = true
+	}
+	
+	// Try to delete from statefulsets
+	if _, exists := s.statefulsets[name]; exists {
+		delete(s.statefulsets, name)
+		if err := s.storage.DeleteStatefulSet(name); err != nil {
+			log.Printf("Failed to delete statefulset from storage: %v", err)
+		}
+		deleted = true
+	}
+	
+	// Try to delete from pods
+	if _, exists := s.pods[name]; exists {
+		delete(s.pods, name)
+		if err := s.storage.DeletePod(name); err != nil {
+			log.Printf("Failed to delete pod from storage: %v", err)
+		}
+		deleted = true
+	}
+	
+	if deleted {
+		w.WriteHeader(http.StatusNoContent)
+	} else {
+		s.writeError(w, http.StatusNotFound, "Workload not found", nil)
+	}
+}
+
+// Handle creating a new workload
+func (s *Server) createGenericWorkloadHandler(w http.ResponseWriter, r *http.Request) {
+	// Decode the manifest to determine its kind
+	var manifest map[string]interface{}
+	if err := s.decodeManifest(r, &manifest); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid manifest", err)
+		return
+	}
+	
+	kind, ok := manifest["kind"].(string)
+	if !ok {
+		s.writeError(w, http.StatusBadRequest, "Missing or invalid 'kind' field", nil)
+		return
+	}
+	
+	// Re-encode the manifest for type-specific handlers
+	data, _ := json.Marshal(manifest)
+	
+	// Route to the appropriate handler based on kind
+	switch kind {
+	case "Deployment":
+		var deployment api.Deployment
+		if err := json.Unmarshal(data, &deployment); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid Deployment manifest", err)
+			return
+		}
+		s.setDefaultsForDeployment(&deployment)
+		s.mutex.Lock()
+		s.deployments[deployment.Name] = &deployment
+		s.mutex.Unlock()
+		if err := s.storage.StoreDeployment(&deployment); err != nil {
+			log.Printf("Failed to persist deployment: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		s.writeJSON(w, &deployment)
+		
+	case "StatefulSet":
+		var statefulset api.StatefulSet
+		if err := json.Unmarshal(data, &statefulset); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid StatefulSet manifest", err)
+			return
+		}
+		s.setDefaultsForStatefulSet(&statefulset)
+		s.mutex.Lock()
+		s.statefulsets[statefulset.Name] = &statefulset
+		s.mutex.Unlock()
+		if err := s.storage.StoreStatefulSet(&statefulset); err != nil {
+			log.Printf("Failed to persist statefulset: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		s.writeJSON(w, &statefulset)
+		
+	case "Pod":
+		var pod api.Pod
+		if err := json.Unmarshal(data, &pod); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid Pod manifest", err)
+			return
+		}
+		s.setDefaultsForPod(&pod)
+		s.mutex.Lock()
+		s.pods[pod.Name] = &pod
+		s.mutex.Unlock()
+		if err := s.storage.StorePod(&pod); err != nil {
+			log.Printf("Failed to persist pod: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		s.writeJSON(w, &pod)
+		
+	default:
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Unsupported workload kind: %s", kind), nil)
+	}
 }
 
 // Container and system handlers (keep existing implementation)
